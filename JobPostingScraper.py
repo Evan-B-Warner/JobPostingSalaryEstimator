@@ -69,7 +69,10 @@ class LinkedinScraper(JobPostingScraper):
         job_search_input.send_keys(search_term)
         job_search_input.send_keys(Keys.RETURN)
 
-        # load the links
+        # scrape the links
+        posting_list = self.driver.find_elements(By.TAG_NAME, "ul")
+        for i in range(len(posting_list)):
+            print('POSTING LIST', i, posting_list[i])
         return []
     
 
@@ -85,29 +88,70 @@ class LinkedinScraper(JobPostingScraper):
         # expand job description
         self.driver.find_element(By.CSS_SELECTOR, "[aria-label='Click to see more description']").click()
 
-        # go to main posting details
+        # go to main card
         posting_main = self.driver.find_element(By.CSS_SELECTOR, "[role='main']")
         title_css = "h1[class='t-24 t-bold job-details-jobs-unified-top-card__job-title']"
         details_css = "div[class='job-details-jobs-unified-top-card__primary-description-without-tagline mb2']"
         salary_css = "li[class='job-details-jobs-unified-top-card__job-insight job-details-jobs-unified-top-card__job-insight--highlight']"
+        description_css = "div[id='ember112']"
 
-        print("JOB TITLE", posting_main.find_element(By.CSS_SELECTOR, title_css).text)
-        print("JOB DETAILS", posting_main.find_element(By.CSS_SELECTOR, details_css).text)
-        print("JOB SALARY", posting_main.find_element(By.CSS_SELECTOR, salary_css).text)
+        # scrape job details
+        title = posting_main.find_element(By.CSS_SELECTOR, title_css).text
+        job_more_info = posting_main.find_element(By.CSS_SELECTOR, details_css).text
+        employer, location, application_length, num_applicants = job_more_info.split("·")
+        salary = posting_main.find_element(By.CSS_SELECTOR, salary_css).text
+        description = posting_main.find_elements(By.XPATH, "./div")[3]
+
+        # format scraped details
+        job_details = {
+            "title": title,
+            "employer": employer.strip(),
+            "location": location.strip(),
+            "num_applicants": num_applicants.strip(),
+            "salary": salary,
+            "description": description,
+            "url": url
+        }
+
+        return job_details
+    
+
+    def scrape_linkedin(self, search_terms):
+        """Scrapes job posting data for each of the given search terms
+
+        """
+        # navigate to and login to linkedin
+        scraper.search_url("https://www.linkedin.com/")
+        time.sleep(3)
+        scraper.login("linkedin_credentials.json")
+        #time.sleep(999)
+
+
+        # scrape links for each search term
+        links = {}
+        for search_term in search_terms:
+            links[search_term] = self.get_job_posting_links(search_term)
+
+        # scrape data from all of the links
+        posting_details = {}
+        for search_term in links:
+            posting_details[search_term] = []
+            for link in links:
+                posting_details.append(self.scrape_post(link))
+        
+        # save all scraped data
+        with open("data/linkedin_scraped_posts.json", "w") as f:
+            json.dump(posting_details, f, indent=4)
+
+        
 
 
 
 if __name__ == "__main__":
     # initialize a linkedin scraper
-    scraper = LinkedinScraper("./chromedriver")
-    scraper.search_url("https://www.linkedin.com/")
-    time.sleep(3)
+    scraper = LinkedinScraper("./chromedriver_windows")
 
-    # login to linked
-    scraper.login("linkedin_credentials.json")
-    time.sleep(3)
-
-    # scrape job posting links
+    # scrape job postings
     search_terms = [
         "Data Scientist", 
         "Data Analyst", 
@@ -120,10 +164,8 @@ if __name__ == "__main__":
         "Frontend Developer",
         "Full Stack Developer"
     ]
-    for search_term in search_terms:
-        pass
-        #scraper.get_job_posting_links(search_term)
+    scraper.scrape_linkedin(search_terms)
 
 
-    scraper.scrape_post("https://www.linkedin.com/jobs/view/3835957961/?eBP=CwEAAAGOiq8Cld0GTKk-P7Ydfjd9FUU8Z9q_j_eHQE8XjfuHIxTMp_HRCuHs1ncd3RqEGZOjsxrDs4JD_9BvQXSLkjBhKiAjrtKwGkQYRI-inU4CXdUXRJiC3G0F7fXFkYhvLwYHHiGI7SPUD9vode0bAlbq3xUkQyIUNoD-4NDwRIAZEG-E9nf2JdNitNijx9ERHeWwDjtR_5TCftrtcbbC1IYaegSPbPvqFs5oky42lQYxs8l4JU10-GjV-2JWyLYwYtHzquUstg8SJ4ajhzTTxqPt_5rOkpDobl33PkkMs7jwYNt099Nq6cxXCnRvOtUsLYGhYazaY_MqPH7jPG11jpDDFy1GqR7MpSn0YL0FYPAFeRPC25jr8ldLzxNTyBmn_x5bo8H7w8Sopbvg0LH9S-OusqNEZXG1_Cl0czL4uU-YUccUd1Aw&refId=s2dOCZm0x7UQBJcytPyi5g%3D%3D&trackingId=aIgrBwiACEkmlZuNUuqmEg%3D%3D&trk=flagship3_search_srp_jobs")
-    time.sleep(999)
+    #scraper.scrape_post("https://www.linkedin.com/jobs/view/3835957961/?eBP=CwEAAAGOiq8Cld0GTKk-P7Ydfjd9FUU8Z9q_j_eHQE8XjfuHIxTMp_HRCuHs1ncd3RqEGZOjsxrDs4JD_9BvQXSLkjBhKiAjrtKwGkQYRI-inU4CXdUXRJiC3G0F7fXFkYhvLwYHHiGI7SPUD9vode0bAlbq3xUkQyIUNoD-4NDwRIAZEG-E9nf2JdNitNijx9ERHeWwDjtR_5TCftrtcbbC1IYaegSPbPvqFs5oky42lQYxs8l4JU10-GjV-2JWyLYwYtHzquUstg8SJ4ajhzTTxqPt_5rOkpDobl33PkkMs7jwYNt099Nq6cxXCnRvOtUsLYGhYazaY_MqPH7jPG11jpDDFy1GqR7MpSn0YL0FYPAFeRPC25jr8ldLzxNTyBmn_x5bo8H7w8Sopbvg0LH9S-OusqNEZXG1_Cl0czL4uU-YUccUd1Aw&refId=s2dOCZm0x7UQBJcytPyi5g%3D%3D&trackingId=aIgrBwiACEkmlZuNUuqmEg%3D%3D&trk=flagship3_search_srp_jobs")
+    #time.sleep(999)
