@@ -38,8 +38,8 @@ class LinkedinScraper(JobPostingScraper):
         # read credentials from file
         with open(credentials_path) as f:
             credentials = json.load(f)
-            username = credentials["Username"]
-            password = credentials["Password"]
+            username = credentials["username"]
+            password = credentials["password"]
         
         # input credentials and sign in
         username_input = self.driver.find_element(By.ID, "session_key")
@@ -55,26 +55,29 @@ class LinkedinScraper(JobPostingScraper):
         
         the specified search term
         """
-        # linkedin sometimes uses a different ID for the job search
-        try:
-            job_search_input = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.ID, "jobs-search-box-keyword-id-ember27"))
-            )
-        except:
-            job_search_input = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.ID, "jobs-search-box-keyword-id-ember28"))
-            )
-        
         # enter and search the search term
+        job_search_input = self.driver.find_element(By.CSS_SELECTOR, "[role='combobox']")
         job_search_input.send_keys(search_term)
         job_search_input.send_keys(Keys.RETURN)
 
+        # slowly get to the links page
+        time.sleep(3)
+        main = scraper.driver.find_element(By.CSS_SELECTOR, "div[class='application-outlet']")
+        main2 = main.find_element(By.CSS_SELECTOR, "div[class='scaffold-layout__list ']")
+        main3 = main2.find_element(By.CSS_SELECTOR, "ul[class='scaffold-layout__list-container']")
+
         # scrape the links
-        posting_list = self.driver.find_elements(By.TAG_NAME, "ul")
-        for i in range(len(posting_list)):
-            print('POSTING LIST', i, posting_list[i])
-        return []
-    
+        links = []
+        postings = main3.find_elements(By.XPATH, "./li")
+        for posting in postings:
+            try:
+                posting_link = posting.find_element(By.TAG_NAME, "a")
+                links.append(posting_link.get_attribute("href"))
+            except Exception as e:
+                pass
+
+        return links
+
 
     def scrape_post(self, url):
         """Given a job posting url, scrapes all relevant information and
@@ -100,7 +103,7 @@ class LinkedinScraper(JobPostingScraper):
         job_more_info = posting_main.find_element(By.CSS_SELECTOR, details_css).text
         employer, location, application_length, num_applicants = job_more_info.split("·")
         salary = posting_main.find_element(By.CSS_SELECTOR, salary_css).text
-        description = posting_main.find_elements(By.XPATH, "./div")[3]
+        description = posting_main.find_elements(By.XPATH, "./div")[3].text
 
         # format scraped details
         job_details = {
@@ -124,10 +127,10 @@ class LinkedinScraper(JobPostingScraper):
         scraper.search_url("https://www.linkedin.com/")
         time.sleep(3)
         scraper.login("linkedin_credentials.json")
-        #time.sleep(999)
 
 
         # scrape links for each search term
+        scraper.search_url("https://www.linkedin.com/jobs/")
         links = {}
         for search_term in search_terms:
             links[search_term] = self.get_job_posting_links(search_term)
@@ -136,20 +139,21 @@ class LinkedinScraper(JobPostingScraper):
         posting_details = {}
         for search_term in links:
             posting_details[search_term] = []
-            for link in links:
-                posting_details.append(self.scrape_post(link))
+            for link in links[search_term]:
+                try:
+                    details = self.scrape_post(link)
+                    posting_details[search_term].append(details)
+                except:
+                    pass
         
         # save all scraped data
         with open("data/linkedin_scraped_posts.json", "w") as f:
             json.dump(posting_details, f, indent=4)
 
-        
-
-
 
 if __name__ == "__main__":
     # initialize a linkedin scraper
-    scraper = LinkedinScraper("./chromedriver_windows")
+    scraper = LinkedinScraper("./chromedriver_mac")
 
     # scrape job postings
     search_terms = [
@@ -164,8 +168,7 @@ if __name__ == "__main__":
         "Frontend Developer",
         "Full Stack Developer"
     ]
-    scraper.scrape_linkedin(search_terms)
+    scraper.scrape_linkedin([search_terms[0]])
+    
 
-
-    #scraper.scrape_post("https://www.linkedin.com/jobs/view/3835957961/?eBP=CwEAAAGOiq8Cld0GTKk-P7Ydfjd9FUU8Z9q_j_eHQE8XjfuHIxTMp_HRCuHs1ncd3RqEGZOjsxrDs4JD_9BvQXSLkjBhKiAjrtKwGkQYRI-inU4CXdUXRJiC3G0F7fXFkYhvLwYHHiGI7SPUD9vode0bAlbq3xUkQyIUNoD-4NDwRIAZEG-E9nf2JdNitNijx9ERHeWwDjtR_5TCftrtcbbC1IYaegSPbPvqFs5oky42lQYxs8l4JU10-GjV-2JWyLYwYtHzquUstg8SJ4ajhzTTxqPt_5rOkpDobl33PkkMs7jwYNt099Nq6cxXCnRvOtUsLYGhYazaY_MqPH7jPG11jpDDFy1GqR7MpSn0YL0FYPAFeRPC25jr8ldLzxNTyBmn_x5bo8H7w8Sopbvg0LH9S-OusqNEZXG1_Cl0czL4uU-YUccUd1Aw&refId=s2dOCZm0x7UQBJcytPyi5g%3D%3D&trackingId=aIgrBwiACEkmlZuNUuqmEg%3D%3D&trk=flagship3_search_srp_jobs")
-    #time.sleep(999)
+    
