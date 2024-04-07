@@ -1,5 +1,6 @@
 import time
 import json
+from tqdm import tqdm
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -17,6 +18,7 @@ class JobPostingScraper(object):
         service = Service(executable_path=webdriver_path)
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
+        options.add_argument("--headless=new")
         self.driver = webdriver.Chrome(service=service, options=options)
     
 
@@ -50,32 +52,49 @@ class LinkedinScraper(JobPostingScraper):
         sign_in_button.click()
     
 
-    def get_job_posting_links(self, search_term, num_posts=20):
-        """Scrapes `num_posts` links of job posting results from 
+    def get_job_posting_links(self, search_term):
+        """Scrapes links of job posting results from
         
         the specified search term
         """
         # enter and search the search term
+        print("Scraping search term:", search_term)
         job_search_input = self.driver.find_element(By.CSS_SELECTOR, "[role='combobox']")
         job_search_input.send_keys(search_term)
         job_search_input.send_keys(Keys.RETURN)
 
-        # slowly get to the links page
-        time.sleep(3)
-        main = scraper.driver.find_element(By.CSS_SELECTOR, "div[class='application-outlet']")
-        main2 = main.find_element(By.CSS_SELECTOR, "div[class='scaffold-layout__list ']")
-        main3 = main2.find_element(By.CSS_SELECTOR, "ul[class='scaffold-layout__list-container']")
-
-        # scrape the links
+        # iterate through first 8 pages
         links = []
-        postings = main3.find_elements(By.XPATH, "./li")
-        for posting in postings:
+        print("Scraping links...")
+        for i in tqdm(range(8)):
+            # slowly get to the links page
+            time.sleep(3)
+            main = scraper.driver.find_element(By.CSS_SELECTOR, "div[class='application-outlet']")
+            main2 = main.find_element(By.CSS_SELECTOR, "div[class='scaffold-layout__list ']")
+            main3 = main2.find_element(By.CSS_SELECTOR, "ul[class='scaffold-layout__list-container']")
+
+            # scrape the links
+            postings = main3.find_elements(By.XPATH, "./li")
+            for posting in postings:
+                # scroll to the posting so the link loads
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", posting)
+                try:
+                    posting_link = posting.find_element(By.TAG_NAME, "a")
+                    link = posting_link.get_attribute("href")
+                    if link not in links:
+                        links.append(link)
+                except Exception as e:
+                    pass
+            
+            # navigate to the next page
             try:
-                posting_link = posting.find_element(By.TAG_NAME, "a")
-                links.append(posting_link.get_attribute("href"))
-            except Exception as e:
+                time.sleep(3)
+                next_page_button = self.driver.find_element(By.CSS_SELECTOR, f"li[data-test-pagination-page-btn='{i+2}']")
+                next_page_button.click()
+            except:
                 pass
 
+        print("Scraped", len(links), "links")
         return links
 
 
@@ -86,7 +105,7 @@ class LinkedinScraper(JobPostingScraper):
         """
         # navigate to the post url
         self.search_url(url)
-        time.sleep(3)
+        time.sleep(2)
 
         # expand job description
         self.driver.find_element(By.CSS_SELECTOR, "[aria-label='Click to see more description']").click()
@@ -103,7 +122,7 @@ class LinkedinScraper(JobPostingScraper):
         job_more_info = posting_main.find_element(By.CSS_SELECTOR, details_css).text
         employer, location, application_length, num_applicants = job_more_info.split("·")
         salary = posting_main.find_element(By.CSS_SELECTOR, salary_css).text
-        description = posting_main.find_elements(By.XPATH, "./div")[3].text
+        description = posting_main.find_elements(By.CSS_SELECTOR, "[tabindex='-1']")[4].text
 
         # format scraped details
         job_details = {
@@ -125,7 +144,7 @@ class LinkedinScraper(JobPostingScraper):
         """
         # navigate to and login to linkedin
         scraper.search_url("https://www.linkedin.com/")
-        time.sleep(3)
+        time.sleep(2)
         scraper.login("linkedin_credentials.json")
 
 
@@ -139,11 +158,12 @@ class LinkedinScraper(JobPostingScraper):
         posting_details = {}
         for search_term in links:
             posting_details[search_term] = []
-            for link in links[search_term]:
+            print("Scraping Posts for", search_term + "...")
+            for link in tqdm(links[search_term]):
                 try:
                     details = self.scrape_post(link)
                     posting_details[search_term].append(details)
-                except:
+                except Exception as e:
                     pass
         
         # save all scraped data
@@ -168,7 +188,4 @@ if __name__ == "__main__":
         "Frontend Developer",
         "Full Stack Developer"
     ]
-    scraper.scrape_linkedin([search_terms[0]])
-    
-
-    
+    scraper.scrape_linkedin(search_terms)
