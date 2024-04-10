@@ -2,6 +2,7 @@ import time
 import json
 from tqdm import tqdm
 from selenium import webdriver
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
@@ -10,16 +11,22 @@ from selenium.webdriver.support import expected_conditions as EC
 import numpy as np
 import pandas as pd
 
+from salary_estimator import salary_string2annual
+
 
 class JobPostingScraper(object):
 
 
-    def __init__(self, webdriver_path):
+    def __init__(self, webdriver_path, headless=True, undetected=False):
         service = Service(executable_path=webdriver_path)
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
-        options.add_argument("--headless=new")
-        self.driver = webdriver.Chrome(service=service, options=options)
+        if headless:
+            options.add_argument("--headless=new")
+        if undetected:
+            self.driver = uc.Chrome(service=service, options=options)
+        else:
+            self.driver = webdriver.Chrome(service=service, options=options)
     
 
     def search_url(self, url):
@@ -171,9 +178,139 @@ class LinkedinScraper(JobPostingScraper):
             json.dump(posting_details, f, indent=4)
 
 
+
+class GlassDoorScraper(JobPostingScraper):
+
+    def login(self, credentials_path):
+        """Logs in to GlassDoor
+
+        """
+        # read credentials from file
+        with open(credentials_path) as f:
+            credentials = json.load(f)
+            username = credentials["username"]
+            password = credentials["password"]
+
+        # click on sign in with google
+        time.sleep(3)
+        self.driver.find_element(By.CSS_SELECTOR, "button[data-test='googleBtn'").click()
+
+        # switch window focus to google sign in pop-up tab
+        window_handles = self.driver.window_handles
+        for handle in window_handles:
+            if handle != self.driver.current_window_handle:
+                self.driver.switch_to.window(handle)
+        
+        # input credentials and sign in
+        time.sleep(5)
+        email_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='email']")
+        email_input.send_keys(username)
+        email_input.send_keys(Keys.RETURN)
+        time.sleep(5)
+        password_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+        password_input.send_keys(password)
+        password_input.send_keys(Keys.RETURN)
+        time.sleep(5)
+        continue_button = self.driver.find_elements(By.CSS_SELECTOR, "div[jsname='xivUjb']")[1]
+        continue_button.click()
+
+        # switch window back to main glassdoor tab
+        window_handles = self.driver.window_handles
+        self.driver.switch_to.window(window_handles[0])
+    
+
+    def scrape_salary_by_title_and_employer(self, title, employer):
+        """Scrapes the estimated salary for a title and employer combination
+        
+        """
+        # go to search url
+        scraper.search_url("https://www.glassdoor.ca/Salaries/know-your-worth.htm")
+        time.sleep(3)
+
+        # fill in job title and employer name, and search
+        title = title.split("/")[0]
+        title_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='jobTitleAutocomplete']")
+        title_input.send_keys(title)
+        employer_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='employerAutocomplete']")
+        employer_input.send_keys(employer)
+        time.sleep(2)
+        employer_autofill = self.driver.find_elements(By.CSS_SELECTOR, "ul[class='suggestions down']")[2]
+        autofill_option = employer_autofill.find_element(By.TAG_NAME, 'li')
+        autofill_option.click()
+        search_button = self.driver.find_element(By.CSS_SELECTOR, "button[data-test='salaries-landing-page-search-btn']")
+        search_button.send_keys(Keys.RETURN)
+
+        # scrape salary range if it exists
+        try:
+            salary_range = self.driver.find_element(By.CSS_SELECTOR, "div[class='hero_TotalPayLayout__jkrO9 hero_PayRange__CLL2w']")
+            divs = salary_range.find_elements(By.CLASS_NAME, "hero_PayRange__CLL2w")
+            lower, upper = divs[0].text + "/yr", divs[1].text
+            return (salary_string2annual(lower) + salary_string2annual(upper))/2
+        except:
+            return -1
+
+    
+    def scrape_salary_by_title(self, title, employer):
+        """Scrapes the estimated salary for a title
+        
+        """
+        # go to search url
+        scraper.search_url("https://www.glassdoor.ca/Salaries/know-your-worth.htm")
+        time.sleep(3)
+
+        # fill in job title and search
+        title = title.split("/")[0]
+        title_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='jobTitleAutocomplete']")
+        title_input.send_keys(title)
+        # fill in employer name to make search button clickable
+        employer_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='employerAutocomplete']")
+        employer_input.send_keys(employer)
+        search_button = self.driver.find_element(By.CSS_SELECTOR, "button[data-test='salaries-landing-page-search-btn']")
+        search_button.send_keys(Keys.RETURN)
+
+        # scrape salary
+        lower, upper = self.driver.find_element(By.CSS_SELECTOR, "div[data-test='total-pay']").text.replace("Base Pay Range", "").split("-")
+        lower, upper = lower.strip().split(" ")[-1]+"/yr", upper.strip().split(" ")[-1]
+        return (salary_string2annual(lower) + salary_string2annual(upper))/2
+
+
+    def scrape_glassdoor(self, postings_json_path, save_path):
+        """Scrapes glassdoor for salaries of scraped linkedin job postings stored in `json_path`
+        
+        """
+        # login to glassdoor
+        scraper.search_url("https://www.glassdoor.ca/")
+        scraper.login("glassdoor_credentials.json")
+        time.sleep(3)
+
+        # load posting data from json
+        with open(postings_json_path) as f:
+            data = json.load(f)
+
+        # preprocess json data and convert to 1D list
+        all_postings = []
+        for search_term in data:
+            all_postings.extend(data[search_term])
+        
+        # scrape all salaries from glassdoor
+        scraped_salaries = {}
+        for posting in tqdm(all_postings):
+            title, employer = posting["title"], posting["employer"]
+            salary = self.scrape_salary_by_title_and_employer(title, employer)
+            time.sleep(5)
+            if salary == -1:
+                salary = self.scrape_salary_by_title(title, employer)
+            scraped_salaries[posting["url"]] = salary
+            time.sleep(5)
+
+            # save scraped salaries to json
+            with open(save_path, "w") as f:
+                json.dump(scraped_salaries, f, indent=4)
+        
+
 if __name__ == "__main__":
     # initialize a linkedin scraper
-    scraper = LinkedinScraper("./chromedriver_mac")
+    #scraper = LinkedinScraper("./chromedriver_mac")
 
     # scrape job postings
     search_terms = [
@@ -188,4 +325,6 @@ if __name__ == "__main__":
         "Frontend Developer",
         "Full Stack Developer"
     ]
-    scraper.scrape_linkedin(search_terms)
+    #scraper.scrape_linkedin(search_terms)
+    scraper = GlassDoorScraper("./chromedriver_mac", headless=False, undetected=True)
+    scraper.scrape_glassdoor("data/linkedin_scraped_posts_0407.json", "data/glassdoor_scraped_salaries_0407.json")

@@ -1,1 +1,6 @@
 linkedin_credentials.json
+bin/
+etc/
+lib/
+include/
+pyvenv.cfg
