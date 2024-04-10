@@ -1,6 +1,2 @@
 linkedin_credentials.json
-bin/
-etc/
-lib/
-include/
-pyvenv.cfg
+glassdoor_credentials.json
