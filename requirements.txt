@@ -1,0 +1,7 @@
+pandas
+numpy
+selenium
+tqdm
+bayesian-optimization
+scikit-learn
+xgboost

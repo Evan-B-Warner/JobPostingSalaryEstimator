@@ -11,7 +11,20 @@ from selenium.webdriver.support import expected_conditions as EC
 import numpy as np
 import pandas as pd
 
-from salary_estimator import salary_string2annual
+
+def salary_string2annual(salary):
+    try:
+        amount = salary.split("/")[0].split("$")[-1].replace("$", "")
+        if "K" in amount:
+            amount = amount.replace("K", "")
+            amount = float(amount)*1000
+        amount = float(amount)
+        term = salary.split("/")[1].split(" ")[0]
+        if term == 'hr':
+            amount = amount*2000
+    except Exception as e:
+        amount = salary
+    return amount
 
 
 class JobPostingScraper(object):
